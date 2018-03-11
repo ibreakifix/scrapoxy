@@ -212,8 +212,14 @@ module.exports = class Instance extends EventEmitter {
 
 
     updateRequestHeaders(headers) {
-        headers['user-agent'] = this._useragent;
-
+        //Allow override of UA randomizer when UA is set manually.
+        if(!headers['user-agent']){
+         headers['user-agent'] = this._useragent;
+        }
+        
+        //Fix CURL Setting Proxy-Connection Header
+        delete headers['proxy-connection'];
+        
         if (this._config.addProxyNameInRequest) {
             headers['x-cache-proxyname'] = this.name;
         }
