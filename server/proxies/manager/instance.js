@@ -133,7 +133,8 @@ module.exports = class Instance extends EventEmitter {
                 if (self._manager.aliveInstances.length > 1) {
                     self.remove()
                         .catch((err) => {
-                            winston.error('[Instance/%s] Error: Cannot remove started instance for autorestart:', self._model.name, err);
+                            winston.error('[Instance/%s] Error: Cannot remove started instance 
+                                          autorestart:', self._model.name, err);
                         });
                 }
                 else {
@@ -212,7 +213,13 @@ module.exports = class Instance extends EventEmitter {
 
 
     updateRequestHeaders(headers) {
-        headers['user-agent'] = this._useragent;
+        //Allow override of UA randomizer when UA is set manually.
+        if(!headers['user-agent']){
+         headers['user-agent'] = this._useragent;
+        }
+
+        //Fix CURL Setting Proxy-Connection Header
+        delete headers['proxy-connection'];
 
         if (this._config.addProxyNameInRequest) {
             headers['x-cache-proxyname'] = this.name;
