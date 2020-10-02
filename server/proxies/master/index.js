@@ -3,7 +3,10 @@
 const _ = require('lodash'),
     Promise = require('bluebird'),
     domain = require('./domain'),
+    fs = require('fs'),
     http = require('http'),
+    Mitm = require('./mitm'),
+    path = require('path'),
     ProxyAgent = require('./proxy-agent'),
     sanitize = require('./sanitize'),
     url = require('url'),
@@ -34,25 +37,71 @@ module.exports = class Master {
             agent: self._agent,
         });
 
+        // Domains
+        self._domainsAllowed = (self._config.domains_allowed || []).map(d => d.toLowerCase());
+        self._domainsForbidden = (self._config.domains_forbidden || []).map(d => d.toLowerCase());
+
+        // Mitm
+        if (self._config.mitm) {
+            let cert;
+            if (self._config.mitm.cert_filename) {
+                cert = fs.readFileSync(self._config.mitm.cert_filename);
+            }
+            else {
+                cert = fs.readFileSync(path.join(__dirname, 'mitm/cert.pem'));
+            }
+
+            let key;
+            if (self._config.mitm.key_filename) {
+                key = fs.readFileSync(self._config.mitm.key_filename);
+            }
+            else {
+                key = fs.readFileSync(path.join(__dirname, 'mitm/key.pem'));
+            }
+
+            self._mitm = new Mitm({cert, key});
+        }
+
         // Config server
         self._server = http.createServer();
 
         self._server.on('request', request);
-		self._server.on('connect', connect);
+        self._server.on('connect', connect);
 
 
         ////////////
 
         function request(req, res) {
-
             // Check auth
             if (self._token) {
                 if (!req.headers['proxy-authorization'] || req.headers['proxy-authorization'] !== self._token) {
-                    return writeEnd(res, 407, '[Master] Error: Wrong proxy credentials', {
+                    return writeEndRequest(res, 407, '[Master] Error: Wrong proxy credentials', {
                         'Proxy-Authenticate': 'Basic realm="Scrapoxy"',
                         'Content-Type': 'text/plain',
                     });
                 }
+            }
+
+            return requestImpl(req, res);
+        }
+
+        function requestImpl(req, res) {
+            // Log errors
+            req.on('error',
+                (err) => {
+                    winston.error('[Master] Error: request error from client (%s %s on instance %s):', req.method, req.url, instance.toString(), err);
+                }
+            );
+
+            res.on('error',
+                (err) => {
+                    winston.error('[Master] Error: response error from client (%s %s on instance %s):', req.method, req.url, instance.toString(), err);
+                }
+            );
+
+            // Check requested url against rules
+            if (isUrlForbidden(req.url)) {
+                return writeEndRequest(res, 407, '[Master] Error: request is forbidden by url rule');
             }
 
             // Trigger scaling if necessary
@@ -67,21 +116,8 @@ module.exports = class Master {
                 instance = self._manager.getNextRunningInstanceForDomain(basedomain, forceName);
 
             if (!instance) {
-                return writeEnd(res, 407, '[Master] Error: No running instance found');
+                return writeEndRequest(res, 407, '[Master] Error: No running instance found');
             }
-
-            // Log errors
-            req.on('error',
-                (err) => {
-                    winston.error('[Master] Error: request error from client (%s %s on instance %s):', req.method, req.url, instance.toString(), err);
-                }
-            );
-
-            res.on('error',
-                (err) => {
-                    winston.error('[Master] Error: response error from client (%s %s on instance %s):', req.method, req.url, instance.toString(), err);
-                }
-            );
 
             // Update headers
             instance.updateRequestHeaders(req.headers);
@@ -99,7 +135,7 @@ module.exports = class Master {
             proxy_req.on('error', (err) => {
                 winston.error('[Master] Error: request error from target (%s %s on instance %s):', req.method, req.url, instance.toString(), err);
 
-                return writeEnd(res, 500, `[Master] Error: request error from target (${req.method} ${req.url} on instance ${instance.toString()}): ${err.toString()}`);
+                return writeEndRequest(res, 500, `[Master] Error: request error from target (${req.method} ${req.url} on instance ${instance.toString()}): ${err.toString()}`);
             });
 
             // Start timer
@@ -109,7 +145,7 @@ module.exports = class Master {
                 proxy_res.on('error', (err) => {
                     winston.error('[Master] Error: response error from target (%s %s on instance %s):', req.method, req.url, instance.toString(), err);
 
-                    return writeEnd(res, 500, `[Master] Error: response error from target (${req.method} ${req.url} on instance ${instance.toString()}): ${err.toString()}`);
+                    return writeEndRequest(res, 500, `[Master] Error: response error from target (${req.method} ${req.url} on instance ${instance.toString()}): ${err.toString()}`);
                 });
 
                 proxy_res.on('end', () => {
@@ -163,23 +199,39 @@ module.exports = class Master {
 
                 return opts;
             }
-
-            function writeEnd(r, code, message, opts) {
-                r.writeHead(code, opts);
-                return r.end(message);
-            }
         }
 
         function connect(req, socket) {
-
             // Check auth
             if (self._token) {
                 if (!req.headers['proxy-authorization'] || req.headers['proxy-authorization'] !== self._token) {
-                    return writeEnd(socket, 407, '[Master] Error: Wrong proxy credentials', {
+                    return writeEndSocket(socket, 407, '[Master] Error: Wrong proxy credentials', {
                         'Proxy-Authenticate': 'Basic realm="Scrapoxy"',
                         'Connection': 'close',
                     });
                 }
+            }
+
+            // Log errors
+            req.on('error',
+                (err) => {
+                    winston.error('[Master] Error: request error from client (%s %s on instance %s):', req.method, req.url, instance.toString(), err);
+                }
+            );
+
+            socket.on('error',
+                (err) => {
+                    winston.error('[Master] Error: socket error from client (%s %s on instance %s):', req.method, req.url, instance.toString(), err);
+                }
+            );
+
+            if (self._mitm) {
+                return self._mitm.connect(socket, (rq, rs) => requestImpl(rq, rs));
+            }
+
+            // Check requested url against rules
+            if (isUrlForbidden(req.url)) {
+                return writeEndSocket(socket, 407, '[Master] Error: request is forbidden by url rule');
             }
 
             // Trigger scaling if necessary
@@ -195,21 +247,8 @@ module.exports = class Master {
                 instance = self._manager.getNextRunningInstanceForDomain(basedomain, forceName);
 
             if (!instance) {
-                return writeEnd(socket, 407, '[Master] Error: No running instance found');
+                return writeEndSocket(socket, 407, '[Master] Error: No running instance found');
             }
-
-            // Log errors
-            req.on('error',
-                (err) => {
-                    winston.error('[Master] Error: request error from client (%s %s on instance %s):', req.method, req.url, instance.toString(), err);
-                }
-            );
-
-            socket.on('error',
-                (err) => {
-                    winston.error('[Master] Error: socket error from client (%s %s on instance %s):', req.method, req.url, instance.toString(), err);
-                }
-            );
 
             // Cannot update headers because SSL is encrypted
 
@@ -229,7 +268,7 @@ module.exports = class Master {
             proxy_req.on('error', (err) => {
                 winston.error('[Master] Error: request error from client (%s %s on instance %s):', req.method, req.url, instance.toString(), err);
 
-                return writeEnd(socket, 500, `[Master] Error: request error from target (${req.method} ${req.url} on instance ${instance.toString()}): ${err.toString()}`);
+                return writeEndSocket(socket, 500, `[Master] Error: request error from target (${req.method} ${req.url} on instance ${instance.toString()}): ${err.toString()}`);
             });
 
             // Start timer
@@ -239,7 +278,7 @@ module.exports = class Master {
                 proxy_socket.on('error', (err) => {
                     winston.error('[Master] Error: response error from target (%s %s on instance %s):', req.method, req.url, instance.toString(), err);
 
-                    return writeEnd(socket, 500, `[Master] Error: response error from target (${req.method} ${req.url} on instance ${instance.toString()}): ${err.toString()}`);
+                    return writeEndSocket(socket, 500, `[Master] Error: response error from target (${req.method} ${req.url} on instance ${instance.toString()}): ${err.toString()}`);
                 });
 
                 proxy_socket.on('end', () => {
@@ -295,25 +334,67 @@ module.exports = class Master {
 
                 return {hostname, port};
             }
+        }
 
-            function writeEnd(s, code, message, opts) {
-                let text = `HTTP/1.1 ${code}`;
-
-                if (message && message.length >= 0) {
-                    text += ` ${message}`;
-                }
-
-                if (opts) {
-                    _.forEach(opts, (val, key) => {
-                        text += `\r\n${key}: ${val}`;
-                    });
-                }
-
-                text += '\r\n\r\n';
-
-                s.write(text);
-                return s.end();
+        function isUrlForbidden(url) {
+            let rUrl;
+            if (!url) {
+                rUrl = '';
             }
+            else {
+                rUrl = url.toLowerCase();
+            }
+
+            if (self._domainsForbidden.length > 0) {
+                if (found(rUrl, self._domainsForbidden)) {
+                    return true;
+                }
+            }
+
+            if (self._domainsAllowed.length > 0) {
+                if (!found(rUrl, self._domainsAllowed)) {
+                    return true;
+                }
+            }
+
+            return false;
+
+
+            ////////////
+
+            function found(u, domains) {
+                for (const domain of domains) {
+                    if (u.indexOf(domain) >= 0) {
+                        return true;
+                    }
+                }
+
+                return false;
+            }
+        }
+
+        function writeEndRequest(r, code, message, opts) {
+            r.writeHead(code, opts);
+            return r.end(message);
+        }
+
+        function writeEndSocket(s, code, message, opts) {
+            let text = `HTTP/1.1 ${code}`;
+
+            if (message && message.length >= 0) {
+                text += ` ${message}`;
+            }
+
+            if (opts) {
+                _.forEach(opts, (val, key) => {
+                    text += `\r\n${key}: ${val}`;
+                });
+            }
+
+            text += '\r\n\r\n';
+
+            s.write(text);
+            return s.end();
         }
     }
 

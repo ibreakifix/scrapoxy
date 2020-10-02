@@ -16,7 +16,7 @@ module.exports = {
 
 function ping(options) {
     if (!options || !options.hostname || !options.port) {
-        throw new Error('[ping] should have hostname and port');
+        return Promise.reject(new Error('[ping] should have hostname and port'));
     }
 
     winston.debug('[Pinger] ping: hostname=%s / port=%d', options.hostname, options.port);

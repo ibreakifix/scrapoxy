@@ -29,9 +29,23 @@ Can Scrapoxy relay HTTPS requests ?
 Yes. There is 2 modes:
 
 
-**Mode A: HTTPS over HTTP (or *no tunnel* mode)**
+**Mode A: HTTPS CONNECT with MITM (Man-In-The-Middle)**
 
-This mode is for **scraper only**. It allows Scrapoxy to override HTTP headers (like User-Agent).
+This mode is for **unsecure browser** like PhantomJS_. It allow Scrapoxy to decrypt SSL and override HTTP headers (like User-Agent).
+
+This solution can trigger some SSL alerts.
+
+
+**Mode B: HTTPS CONNECT without MITM**
+
+This mode is for **secure browser**. It doesn't allow Scrapoxy to override HTTP headers (like User-Agent). You must manually set the User-Agent.
+
+The best solution is to use only 1 User-Agent (it would be strange to have multiple User-Agents coming from 1 IP, isn't it?).
+
+
+**Mode C: HTTPS over HTTP (or *no tunnel* mode)**
+
+This mode is for **scraper**. It allows Scrapoxy to override HTTP headers (like User-Agent).
 
 The scraper must send a HTTP request with an HTTPS URL in the *Location* header.
 
@@ -59,13 +73,6 @@ With Request_ (`Node.js`_), add *tunnel:false* to options::
     }, (err, response, body) => {...});
 
 
-**Mode B: HTTPS CONNECT (or *tunnel* mode)**
-
-This mode is for **browser only** like PhantomJS_. It doesn't allow Scrapoxy to override HTTP headers (like User-Agent). You must manually set the User-Agent.
-
-The best solution is to use only 1 User-Agent (it would be strange to have multiple User-Agents coming from 1 IP, isn't it?).
-
-
 .. _instance-name:
 
 What is the proxy that returned the response ?
@@ -74,6 +81,8 @@ What is the proxy that returned the response ?
 Scrapoxy adds to the response an HTTP header **x-cache-proxyname**.
 
 This header contains the name of the proxy.
+
+If you are using HTTPS in `HTTPS CONNECT without MITM`, Scrapoxy is unable to add this header since the traffic is encrypted.
 
 
 Can the scraper force the request to go through a specific proxy?

@@ -207,7 +207,7 @@ module.exports = class ProviderAWSEC2 {
         winston.debug('[ProviderAWSEC2] createInstances: count=%d', count);
 
         return createInstances(self._config.instance, count)
-            .then((ids) => Promise.delay(500, ids))
+            .then((ids) => Promise.delay(1000, ids))
             .then((ids) => tagInstances(ids, self._config.tag))
             .catch((err) => {
                 if (err.code === 'InstanceLimitExceeded') {

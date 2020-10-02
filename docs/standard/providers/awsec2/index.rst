@@ -33,6 +33,7 @@ Step 4: Choose an AMI
 Public AMI are available for theses regions:
 
 - eu-west-1 / t1.micro: ami-c74d0db4
+- eu-west-1 / t2.micro: ami-485fbba5
 - eu-west-1 / t2.nano: ami-06220275
 
 If you cannot find your region, you can :doc:`Copy an AMI from a region to another <copy_ami_to_region/index>`.

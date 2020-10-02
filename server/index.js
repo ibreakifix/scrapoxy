@@ -28,7 +28,7 @@ winston.add(winston.transports.Console, {timestamp: true});
 
 
 program
-    .version('3.0.1')
+    .version('3.1.1')
     .option('-d, --debug', 'Debug mode (increase verbosity)', debugMode)
     .parse(process.argv);
 
@@ -103,7 +103,7 @@ function startProxy(configFilename) {
     // Write logs (if specified)
     if (config.logs && config.logs.path) {
         winston.add(winston.transports.File, {
-            filename: `{config.logs.path}/scrapoxy_${moment().format('YYYYMMDD_HHmmss')}.log`,
+            filename: `${config.logs.path}/scrapoxy_${moment().format('YYYYMMDD_HHmmss')}.log`,
             json: false,
             timestamp: true,
         });

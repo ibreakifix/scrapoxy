@@ -126,7 +126,7 @@ And complete with :ref:`tutorials-docs`.
 Prerequisite
 ============
 
-- `Node.js`_ minimum version: 4.2.1
+- `Node.js`_ minimum version: 8.0.0
 
 
 Contribute

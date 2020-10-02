@@ -77,6 +77,7 @@ module.exports = class ProxyAgent extends http.Agent {
 
             const cts = tls.connect({
                 host: opts.hostname,
+                servername: opts.hostname,
                 socket,
             }, () => callback(false, cts));
 
