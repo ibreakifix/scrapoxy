@@ -133,8 +133,7 @@ module.exports = class Instance extends EventEmitter {
                 if (self._manager.aliveInstances.length > 1) {
                     self.remove()
                         .catch((err) => {
-                            winston.error('[Instance/%s] Error: Cannot remove started instance 
-                                          autorestart:', self._model.name, err);
+                            winston.error('[Instance/%s] Error: Cannot remove started instance for autorestart:', self._model.name, err);
                         });
                 }
                 else {
